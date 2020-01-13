@@ -10,6 +10,10 @@
 
 #include "packager/base/logging.h"
 
+#include "packager/third_party/boringssl/src/crypto/fipsmodule/aes/internal.h"
+#include "packager/third_party/boringssl/src/include/openssl/aes.h"
+#include "packager/third_party/boringssl/src/include/openssl/evp.h"
+
 namespace {
 
 // Increment an 8-byte counter by 1. Return true if overflowed.
@@ -43,7 +47,7 @@ bool AesEncryptor::InitializeWithIv(const std::vector<uint8_t>& key,
     return false;
   }
 
-  CHECK_EQ(AES_set_encrypt_key(key.data(), key.size() * 8, mutable_aes_key()),
+  CHECK_EQ(aes_hw_set_encrypt_key(key.data(), key.size() * 8, mutable_aes_key()),
            0);
   return SetIv(iv);
 }
@@ -76,7 +80,7 @@ bool AesCtrEncryptor::CryptInternal(const uint8_t* plaintext,
 
   for (size_t i = 0; i < plaintext_size; ++i) {
     if (block_offset_ == 0) {
-      AES_encrypt(&counter_[0], &encrypted_counter_[0], aes_key());
+      aes_hw_encrypt(&counter_[0], &encrypted_counter_[0], aes_key());
       // As mentioned in ISO/IEC 23001-7:2016 CENC spec, of the 16 byte counter
       // block, bytes 8 to 15 (i.e. the least significant bytes) are used as a
       // simple 64 bit unsigned integer that is incremented by one for each
@@ -130,7 +134,7 @@ bool AesCbcEncryptor::CryptInternal(const uint8_t* plaintext,
   // Encrypt everything but the residual block using CBC.
   const size_t cbc_size = plaintext_size - residual_block_size;
   if (cbc_size != 0) {
-    AES_cbc_encrypt(plaintext, ciphertext, cbc_size, aes_key(),
+    aes_hw_cbc_encrypt(plaintext, ciphertext, cbc_size, aes_key(),
                     internal_iv_.data(), AES_ENCRYPT);
   } else if (padding_scheme_ == kCtsPadding) {
     // Don't have a full block, leave unencrypted.
@@ -158,7 +162,7 @@ bool AesCbcEncryptor::CryptInternal(const uint8_t* plaintext,
 
     // Pad residue block with PKCS5 padding.
     residual_block.resize(AES_BLOCK_SIZE, static_cast<char>(num_padding_bytes));
-    AES_cbc_encrypt(residual_block.data(), residual_ciphertext_block,
+    aes_hw_cbc_encrypt(residual_block.data(), residual_ciphertext_block,
                     AES_BLOCK_SIZE, aes_key(), internal_iv_.data(),
                     AES_ENCRYPT);
   } else {
@@ -167,7 +171,7 @@ bool AesCbcEncryptor::CryptInternal(const uint8_t* plaintext,
 
     // Zero-pad the residual block and encrypt using CBC.
     residual_block.resize(AES_BLOCK_SIZE, 0);
-    AES_cbc_encrypt(residual_block.data(), residual_block.data(),
+    aes_hw_cbc_encrypt(residual_block.data(), residual_block.data(),
                     AES_BLOCK_SIZE, aes_key(), internal_iv_.data(),
                     AES_ENCRYPT);
 
